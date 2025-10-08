@@ -11,77 +11,42 @@ const handleError = (res, error, message = "Internal server error") => {
   res.status(500).json({ error: message });
 };
 
-// 1. GET event by ID
 router.get("/events", async (req, res) => {
   try {
-    const { id } = req.query;
-
-    if (!id) {
-      return res.status(400).json({ error: "Event ID is required. Please fill id " });
-    }
-
+    const { id, type, limit = 5, page = 1 } = req.query;
     const db = getDb();
 
-    const event = await db.collection("events").findOne({
-      _id: new ObjectId(id),
+    if (id) {
+      // Fetch by ID
+      const event = await db
+        .collection("events")
+        .findOne({ _id: new ObjectId(id) });
+      if (!event) return res.status(404).json({ error: "Event not found" });
+      return res.json(event);
+    }
+
+    if (type === "latest") {
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const events = await db
+        .collection("events")
+        .find()
+        .sort({ schedule: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .toArray();
+
+      return res.json(events);
+    }
+
+    return res.status(400).json({
+      error: "Provide either ?id=<event_id> OR ?type=latest&limit=n&page=m",
     });
-
-    if (!event) {
-      return res.status(404).json({ error: "Event not found by provided id ." });
-    }
-
-    res.json(event);
   } catch (error) {
-    if (error instanceof Error) {
-      return res.status(400).json({ error: "Invalid event ID " });
-    }
-    handleError(res, error, "Failed to fetch event");
+    return res.status(400).json({ error: "Invalid request" });
   }
 });
-
-
-
-
-
-
-
-
-////////////////////////////////// pagination
-
-router.get("/events", async (req, res) => {
-  try {
-    const { type, limit = 5, page = 1 } = req.query;
-    page = parseInt(page); limit = parseInt(limit);
-
-    if (type !== "latest") {
-      return res.status(400).json({ error: "Invalid type value. it should be latest." });
-    }
-
-    const db = getDb();
-    // skip 
-    const skip = (page - 1) * limit;
-
-    const events = await db
-      .collection("events")
-      .find()
-      .sort({ schedule: -1 }) // Sort by most recent
-      .skip(skip)
-      .limit(limit)
-      .toArray();
-
-    res.json(events);
-  } catch (error) {
-    handleError(res, error, "Failed to fetch events");
-  }
-});
-
-
-
-
-
 
 ////////////////////////////////////////////// post events
-
 
 router.post("/events", upload.single("image"), async (req, res) => {
   try {
@@ -98,14 +63,16 @@ router.post("/events", upload.single("image"), async (req, res) => {
 
     // Basic validation
     if (!name || !tagline || !schedule || !description) {
-      return res.status(400).json({ error: "Please fill all the required fields." });
+      return res
+        .status(400)
+        .json({ error: "Please fill all the required fields." });
     }
 
     const db = getDb();
 
     const eventData = {
       type: "event",
-      uid: 18, 
+      uid: 18,
       name,
       tagline,
       schedule: new Date(schedule),
@@ -137,14 +104,6 @@ router.post("/events", upload.single("image"), async (req, res) => {
   }
 });
 
-
-
-
-
-
-
-
-
 // ///////////////////////// put update events/////
 router.put("/events/:id", upload.single("image"), async (req, res) => {
   try {
@@ -172,10 +131,7 @@ router.put("/events/:id", upload.single("image"), async (req, res) => {
       updateData.schedule = new Date(updateData.schedule);
     }
 
-    // Handle rigor_rank conversion
-    if (updateData.rigor_rank) {
-      updateData.rigor_rank = parseInt(updateData.rigor_rank);
-    }
+   
 
     // Add image path if new file was uploaded
     if (req.file) {
@@ -189,8 +145,7 @@ router.put("/events/:id", upload.single("image"), async (req, res) => {
       .updateOne({ _id: new ObjectId(id) }, { $set: updateData });
 
     res.json({
-      message: "Event updated successfully",
-      modifiedCount: result.modifiedCount,
+      message: `Event updated successfully`,
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes("ObjectId")) {
@@ -199,15 +154,6 @@ router.put("/events/:id", upload.single("image"), async (req, res) => {
     handleError(res, error, "Failed to update event");
   }
 });
-
-
-
-
-
-
-
-
-
 
 // 5. DELETE event by ID
 router.delete("/events/:id", async (req, res) => {
